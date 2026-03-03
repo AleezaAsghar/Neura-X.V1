@@ -82,12 +82,6 @@ These endpoints are actively called from the patient dashboard JavaScript:
 | **GET** | **`/api/patient/<id>/anomalies`**        | **Critical lab anomalies + specialists** | **404 – Missing** ← Highest priority fix |
 | POST   | `/api/patient/chatbot`                   | AI assistant conversation            | Implemented?   |
 
-**Critical missing endpoint right now**:
-
-```text
-GET /api/patient/<patient_id>/anomalies
-
-
 **##Technology Stack**
 Frontend
 
