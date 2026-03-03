@@ -88,7 +88,7 @@ These endpoints are actively called from the patient dashboard JavaScript:
 GET /api/patient/<patient_id>/anomalies
 
 
-Technology Stack
+**##Technology Stack**
 Frontend
 
 HTML + Tailwind CSS (via CDN)
@@ -103,7 +103,7 @@ GROQ LLM API
 Clinical BERT (via transformers?)
 File handling: Pillow, PyMuPDF (fitz), PaddleOCR / Tesseract
 
-Installation & Running
+**##Installation & Running**
 
 # 1. Activate virtual environment
 source venv/bin/activate    # or venv\Scripts\activate on Windows
