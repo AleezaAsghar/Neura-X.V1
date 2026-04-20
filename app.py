@@ -29,10 +29,11 @@ if tesseract_cmd:
 
 def load_environment_files():
     """Load environment vars from common local env filenames."""
-    # Standard dotenv filename
-    load_dotenv()
-    # Project currently uses `env` (without dot) in some setups.
-    load_dotenv("env")
+    project_root = Path(__file__).resolve().parent
+    # Standard dotenv filename should take priority during local development.
+    load_dotenv(project_root / ".env", override=True)
+    # Support legacy `env` filename as a fallback only.
+    load_dotenv(project_root / "env", override=False)
 
 
 load_environment_files()
