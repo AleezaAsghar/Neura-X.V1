@@ -1,21 +1,20 @@
+import hashlib
+import io
 import os
-import sqlite3
 import re
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
-from werkzeug.utils import secure_filename
-from groq import Groq
-from dotenv import load_dotenv
-from PIL import Image
 import fitz  # PyMuPDF
-import io
 import numpy as np
-import hashlib
-import os
-from dotenv import load_dotenv
 import pytesseract
+from dotenv import load_dotenv
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from groq import Groq
+from PIL import Image
+from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 try:
     import psycopg2
     from psycopg2.extras import DictCursor
@@ -23,7 +22,9 @@ except ImportError:
     psycopg2 = None
     DictCursor = None
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
+if tesseract_cmd:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
 
 def load_environment_files():
@@ -35,22 +36,19 @@ def load_environment_files():
 
 
 load_environment_files()
-clinical_bert_model = os.getenv(" ") #add clinical bert model name here 
+clinical_bert_model = os.getenv("CLINICAL_BERT_MODEL", "").strip()
 hf_token = os.getenv("HF_TOKEN")
 
-# Load environment variables (optional - API key is now hardcoded)
-try:
-    load_environment_files()
-except:
-    pass  # Continue even if .env file has issues
-
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
+is_vercel = os.getenv("VERCEL", "").lower() in {"1", "true"}
+app.config['UPLOAD_FOLDER'] = '/tmp/uploads' if is_vercel else 'uploads'
 app.config['PROFILE_FOLDER'] = 'static/profiles'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'pdf'}
-app.config['SECRET_KEY'] = 'hms-secret-key-change-in-production'  # For session management
-app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "dev-only-change-me")
+app.config['SESSION_COOKIE_SECURE'] = (
+    True if is_vercel else os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -254,6 +252,21 @@ def _database_connect(*args, **kwargs):
 sqlite3.connect = _database_connect
 
 # Security helper functions
+def hash_password(password):
+    """Generate a strong password hash for storage."""
+    return generate_password_hash(password, method="pbkdf2:sha256")
+
+
+def verify_password(stored_password, plain_password):
+    """Verify new hashes and keep legacy MD5 compatibility."""
+    if not stored_password or not plain_password:
+        return False
+    if stored_password.startswith(("pbkdf2:", "scrypt:")):
+        return check_password_hash(stored_password, plain_password)
+    legacy_hash = hashlib.md5(plain_password.encode()).hexdigest()
+    return stored_password == legacy_hash
+
+
 def require_auth():
     """Check if user is authenticated"""
     if 'user_role' not in session:
@@ -475,7 +488,7 @@ def ensure_default_users(conn, cursor):
     """Ensure baseline users exist for fresh environments."""
     cursor.execute('''SELECT COUNT(*) FROM users WHERE username = ?''', ('admin',))
     if cursor.fetchone()[0] == 0:
-        default_password = hashlib.md5('admin123'.encode()).hexdigest()
+        default_password = hash_password('admin123')
         cursor.execute('''INSERT INTO users (username, password, role, full_name, created_at)
                          VALUES (?, ?, 'admin', 'System Administrator', ?)''',
                      ('admin', default_password, datetime.now().isoformat()))
@@ -483,7 +496,7 @@ def ensure_default_users(conn, cursor):
 
     cursor.execute('''SELECT COUNT(*) FROM users WHERE username = ?''', ('patient',))
     if cursor.fetchone()[0] == 0:
-        patient_password = hashlib.md5('patient123'.encode()).hexdigest()
+        patient_password = hash_password('patient123')
         cursor.execute('''INSERT INTO users (username, password, role, full_name, user_id, created_at)
                          VALUES (?, ?, 'patient', 'Demo Patient', 1, ?)''',
                      ('patient', patient_password, datetime.now().isoformat()))
@@ -944,7 +957,7 @@ def migrate_database():
             print("Created users table")
             
             # Create default admin user (password: admin123)
-            default_password = hashlib.md5('admin123'.encode()).hexdigest()
+            default_password = hash_password('admin123')
             cursor.execute('''SELECT COUNT(*) FROM users WHERE username = ?''', ('admin',))
             if cursor.fetchone()[0] == 0:
                 cursor.execute('''INSERT INTO users (username, password, role, full_name, created_at)
@@ -953,7 +966,7 @@ def migrate_database():
                 print("Created default admin user (username: admin, password: admin123)")
             
             # Create default patient user (password: patient123)
-            patient_password = hashlib.md5('patient123'.encode()).hexdigest()
+            patient_password = hash_password('patient123')
             cursor.execute('''SELECT COUNT(*) FROM users WHERE username = ?''', ('patient',))
             if cursor.fetchone()[0] == 0:
                 cursor.execute('''INSERT INTO users (username, password, role, full_name, user_id, created_at)
@@ -1758,9 +1771,6 @@ def login():
         if not username or not password:
             return render_template('login.html', error='Username and password are required')
         
-        # Hash password for comparison
-        password_hash = hashlib.md5(password.encode()).hexdigest()
-        
         conn = sqlite3.connect('db.sqlite3')
         cursor = conn.cursor()
         
@@ -1776,7 +1786,7 @@ def login():
             
             # Check password
             stored_password = user[6] if len(user) > 6 else ''
-            if stored_password != password_hash:
+            if not verify_password(stored_password, password):
                 conn.close()
                 return render_template('login.html', error='Invalid username or password')
             
@@ -2625,11 +2635,11 @@ def signup():
                 if 'patient_id' in column_names:
                     patient_unique_id = f"PAT{patient_id:06d}"
                     cursor.execute('UPDATE patients SET patient_id = ? WHERE id = ?', (patient_unique_id, patient_id))
-            except:
+            except Exception:
                 pass  # Column doesn't exist, skip it
             
             # Create user account
-            password_hash = hashlib.md5(password.encode()).hexdigest()
+            password_hash = hash_password(password)
             cursor.execute('''INSERT INTO users (username, password, role, full_name, email, user_id, created_at)
                              VALUES (?, ?, 'patient', ?, ?, ?, ?)''',
                          (username, password_hash, full_name, email or None, patient_id, created_at))
@@ -3770,7 +3780,7 @@ def admin_users():
             if cursor.fetchone():
                 return jsonify({'error': 'Username already exists'}), 400
             
-            password_hash = hashlib.md5(data.get('password', '').encode()).hexdigest()
+            password_hash = hash_password(data.get('password', ''))
             cursor.execute('''INSERT INTO users (username, password, role, full_name, email, user_id, created_at)
                              VALUES (?, ?, ?, ?, ?, ?, ?)''',
                          (data.get('username'), password_hash, data.get('role', 'patient'),
@@ -3818,7 +3828,7 @@ def admin_user_detail(user_id):
             values = []
             
             if 'password' in data and data['password']:
-                password_hash = hashlib.md5(data['password'].encode()).hexdigest()
+                password_hash = hash_password(data['password'])
                 updates.append('password = ?')
                 values.append(password_hash)
             
@@ -3878,7 +3888,7 @@ def admin_doctors():
             
             # Create user account for doctor if username/password provided
             if data.get('username') and data.get('password'):
-                password_hash = hashlib.md5(data['password'].encode()).hexdigest()
+                password_hash = hash_password(data['password'])
                 cursor.execute('''INSERT INTO users (username, password, role, full_name, email, user_id, created_at)
                                  VALUES (?, ?, 'doctor', ?, ?, ?, ?)''',
                              (data['username'], password_hash, data.get('name'), data.get('email'),
@@ -4061,7 +4071,7 @@ def user_profile():
                 updates.append('email = ?')
                 values.append(data['email'])
             if 'password' in data and data['password']:
-                password_hash = hashlib.md5(data['password'].encode()).hexdigest()
+                password_hash = hash_password(data['password'])
                 updates.append('password = ?')
                 values.append(password_hash)
             
@@ -5276,8 +5286,7 @@ def send_message_to_doctor(doctor_id):
         
         if not doctor_user:
             # Auto-create user account for the doctor
-            import hashlib
-            default_password = hashlib.md5('doctor123'.encode()).hexdigest()
+            default_password = hash_password('doctor123')
             username = f"doctor_{doctor_id}"
             
             cursor.execute('''INSERT INTO users (username, password, role, full_name, user_id, created_at)
@@ -5443,6 +5452,15 @@ def advanced_search():
     finally:
         conn.close()
 
+def create_app():
+    """Application factory used by gunicorn/wsgi and local development."""
+    return app
+
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "5000")),
+        debug=os.getenv("FLASK_DEBUG", "false").lower() == "true",
+    )
 

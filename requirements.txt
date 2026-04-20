@@ -20,10 +20,9 @@ PyMuPDF>=1.23.0
 # Numerical operations
 numpy>=1.24.0
 
-# Optional OCR (choose one or both)
-paddleocr>=2.7.0  # Uncomment if you want PaddleOCR (requires paddlepaddle)
-pytesseract>=0.3.10  # Uncomment if you want Tesseract OCR
+# OCR
+pytesseract>=0.3.10
 
 # Optional Clinical BERT (for advanced medical analysis)
-transformers>=4.35.0  # Uncomment for Clinical BERT
-torch>=2.0.0  # Uncomment for Clinical BERT
+transformers>=4.35.0
+torch>=2.0.0
