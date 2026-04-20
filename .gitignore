@@ -1,0 +1,64 @@
+#Python
+
+**pycache**/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+venv/
+env/
+ENV/
+.venv/
+
+# Flask
+
+instance/
+.webassets-cache
+
+#Database
+db.sqlite3
+*.db
+*.sqlite3
+
+
+# User uploads 
+uploads/
+static/profiles/
+#Environment variables
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+
+.DS_Store
+Thumbs.db
+
+#Logs
+
+*.log
+#Optional: Jupyter
+.ipynb_checkpoints/
